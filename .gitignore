@@ -1,0 +1,40 @@
+# ── Credentials & secrets ─────────────────────────────────────────────────────
+knowledge/credentials/
+*.json.key
+*.pem
+*.p12
+.env
+.env.*
+!.env.example
+
+# ── Client-specific knowledge base (never commit) ─────────────────────────────
+knowledge/rules/
+knowledge/patterns/
+knowledge/process/
+knowledge/memory/
+feedback_library/
+rules/
+
+# ── Generated output (local only) ────────────────────────────────────────────
+output/
+output/sessions/
+
+# ── Legacy & test files ───────────────────────────────────────────────────────
+legacy/
+test_article.txt
+/tmp/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
