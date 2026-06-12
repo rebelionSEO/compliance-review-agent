@@ -1,8 +1,10 @@
 """
-Route-based context loader.
+Route-based context loader — now with section-aware confidence thresholds.
 
 Loads only the KB sections relevant for a given content type and pipeline step.
 Avoids injecting the full 42KB knowledge base on every call.
+
+NEW: auto_approve now considers section_type to avoid false negatives in high-risk areas.
 """
 
 from pathlib import Path
@@ -82,17 +84,49 @@ def for_delta(content_type: str = "blog") -> list[dict]:
     return blocks
 
 
-def get_confidence(category: str, quoted_text: str) -> dict:
-    """Return confidence data for a flag type."""
+def get_confidence(category: str, quoted_text: str, section_type: str = "unknown") -> dict:
+    """Return confidence data for a flag type, considering section."""
     import json
     data = json.loads(_read(CONFIDENCE)) if CONFIDENCE.exists() else {"patterns": {}}
-    key = f"{category}::{quoted_text[:60]}"
+    key = f"{category}::{section_type}::{quoted_text[:60]}"  # ✅ NEW: section-aware key
     return data["patterns"].get(key, {"confirmed": 0, "rejected": 0, "edits": 0})
 
 
-def auto_approve(category: str, quoted_text: str, min_reviews: int = 5, min_score: float = 0.8) -> bool:
-    """Return True if this flag type has enough confirmed history to auto-approve."""
-    conf = get_confidence(category, quoted_text)
+def auto_approve(
+    category: str,
+    quoted_text: str,
+    section_type: str = "unknown",
+    min_reviews: int = None,
+    min_score: float = None
+) -> bool:
+    """
+    Return True if this flag type has enough confirmed history to auto-approve.
+    
+    NEW: Section-aware thresholds
+    - High-risk sections (headline, cta, bullet_list): require 5+ reviews, 90%+ score
+    - Medium-risk sections (section, subsection): require 3+ reviews, 80%+ score
+    - Low-risk sections (faq, footer): require 2+ reviews, 70%+ score
+    """
+    conf = get_confidence(category, quoted_text, section_type)
+    
+    # ✅ NEW: Dynamic thresholds by section risk
+    if section_type in ("headline", "hero", "cta", "bullet_list"):
+        # High-risk sections: be conservative
+        min_reviews = min_reviews or 5
+        min_score = min_score or 0.90
+    elif section_type in ("section", "subsection", "disclosure"):
+        # Medium-risk sections: moderate
+        min_reviews = min_reviews or 3
+        min_score = min_score or 0.80
+    elif section_type in ("faq", "footer", "paragraph"):
+        # Low-risk sections: can be aggressive
+        min_reviews = min_reviews or 2
+        min_score = min_score or 0.70
+    else:
+        # Unknown: default to conservative
+        min_reviews = min_reviews or 5
+        min_score = min_score or 0.80
+    
     total = conf["confirmed"] + conf["rejected"]
     if total < min_reviews:
         return False
@@ -100,15 +134,15 @@ def auto_approve(category: str, quoted_text: str, min_reviews: int = 5, min_scor
     return score >= min_score
 
 
-def update_confidence(category: str, quoted_text: str, decision: str) -> None:
+def update_confidence(category: str, quoted_text: str, section_type: str = "unknown", decision: str = "confirmed") -> None:
     """
-    Update confidence score after a QA decision.
+    Update confidence score after a QA decision, section-aware.
     decision: 'confirmed' | 'rejected' | 'edited'
     """
     import json
     path = CONFIDENCE
     data = json.loads(_read(path)) if path.exists() else {"patterns": {}}
-    key = f"{category}::{quoted_text[:60]}"
+    key = f"{category}::{section_type}::{quoted_text[:60]}"  # ✅ NEW: section-aware key
     entry = data["patterns"].get(key, {"confirmed": 0, "rejected": 0, "edits": 0})
     if decision == "confirmed":
         entry["confirmed"] += 1
@@ -189,8 +223,8 @@ def save_domain_decision(domain: str, decision: str) -> None:
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def save_fix_example(category: str, original: str, fixed: str, article: str = "") -> None:
-    """Save a confirmed fix pair to the fix examples library."""
+def save_fix_example(category: str, original: str, fixed: str, section_type: str = "unknown", article: str = "") -> None:
+    """Save a confirmed fix pair to the fix examples library, section-aware."""
     import json
     from datetime import datetime
     path = FIX_EXAMPLES
@@ -199,6 +233,7 @@ def save_fix_example(category: str, original: str, fixed: str, article: str = ""
         "category": category,
         "original": original,
         "fixed": fixed,
+        "section_type": section_type,  # ✅ NEW: track where fix worked
         "source": article,
         "date": datetime.now().strftime("%Y-%m-%d"),
     })
